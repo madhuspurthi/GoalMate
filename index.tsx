@@ -1,5 +1,6 @@
 import React, { useState, FormEvent, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
 // --- Utility Functions ---
@@ -736,6 +737,7 @@ const MainDashboardContent = ({ navigateTo, userGoals }) => {
   const [questError, setQuestError] = useState('');
   const [isBuddyActive] = useState(false); // Simulated state for BotBuddy
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [isCheckingIn, setIsCheckingIn] = useState(false); // Add loading state
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -774,10 +776,50 @@ const MainDashboardContent = ({ navigateTo, userGoals }) => {
     fetchWeeklyQuest();
   }, [userGoals]);
   
-  const handleCheckIn = () => {
-    setIsCheckedIn(true);
-    awardXp(10);
-    alert("Daily Check-in Logged! +10 XP");
+  const handleCheckIn = async () => {
+    // Prevent multiple submissions by checking the loading state
+    if (isCheckingIn || isCheckedIn) return;
+
+    // Set loading state to true to disable the button and show feedback
+    setIsCheckingIn(true);
+
+    try {
+      // --- Supabase Integration ---
+      // This function sends data to your Supabase database.
+      // We are inserting a new record into the 'checkins' table.
+      const { error } = await supabase
+        .from('checkins') // Specify the table name
+        .insert({ 
+          // In a real app with authentication, you would get the user's ID from the session.
+          // For this example, we use a static placeholder string as requested.
+          user_id: 'a-unique-user-id-placeholder', 
+          // We're using the current date and time in ISO format, a standard for timestamps.
+          date: new Date().toISOString(),
+        });
+
+      // The Supabase client returns an 'error' object if something went wrong with the database operation.
+      if (error) {
+        // If an error occurred, we throw it to be caught by our 'catch' block below.
+        throw error;
+      }
+
+      // --- Success State ---
+      // If the insert was successful (no error was thrown), we update the app's state.
+      setIsCheckedIn(true); // This will change the button's appearance and disable it.
+      awardXp(10); // Award experience points for the action.
+      alert("Daily Check-in Logged! +10 XP"); // Let the user know it worked.
+
+    } catch (error) {
+      // This block runs if the 'try' block fails (e.g., Supabase insert error).
+      // This is essential for handling network issues or database problems gracefully.
+      console.error("Error during check-in with Supabase:", error.message);
+      // Show a user-friendly error message.
+      alert('Sorry, there was a problem saving your check-in. Please try again later.');
+    } finally {
+      // This block runs after the 'try' (or 'catch') block has finished.
+      // We use it to reset the loading state, re-enabling the button if there was an error.
+      setIsCheckingIn(false);
+    }
   };
 
   return (
@@ -794,9 +836,9 @@ const MainDashboardContent = ({ navigateTo, userGoals }) => {
             <button 
                 onClick={handleCheckIn} 
                 className={`btn btn-lg ${isCheckedIn ? 'btn-success' : 'btn-primary'}`}
-                disabled={isCheckedIn}
+                disabled={isCheckedIn || isCheckingIn}
             >
-                {isCheckedIn ? "Checked In! 🎉" : "1-Tap Check-in"}
+                {isCheckingIn ? "Saving..." : isCheckedIn ? "Checked In! 🎉" : "1-Tap Check-in"}
             </button>
         </div>
 
@@ -907,8 +949,20 @@ let mockGoalsData = [
   { id: 'SideProject', title: 'Launch Side Project API', emoji: '🚀', statusText: 'Planning Phase', progressPercent: 10, category: 'Coding', description: 'In the initial planning stages for the new side project API.', type: 'Generic', linkedHabitId: null },
 ];
 
+// --- SERVICE CLIENTS INITIALIZATION ---
+
+// Gemini AI Client
 const GEMINI_API_KEY = process.env.API_KEY;
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
+
+// Supabase Client
+// In a real application, these values would come from secure environment variables.
+// The user's prompt states to "assume supabase is already initialized",
+// so we'll create a placeholder client here to make the code runnable and demonstrate its usage.
+const supabaseUrl = 'https://placeholder.supabase.co';
+const supabaseKey = 'placeholder-anon-key';
+const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
+
 
 async function generateAIQuestionForModule(goalTitle, moduleName) {
   if (!ai) {
